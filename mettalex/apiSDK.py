@@ -7,7 +7,6 @@ import shutil
 import requests
 import web3
 
-# class Metallex:
 INNFURA_SECRET = ''
 INNFURA_PROJECT_ID = ''
 USER_KEY = ''
@@ -5255,22 +5254,9 @@ abi_poolController = [
   }
 ]
 
-# def read_config():
-#     with open(os.path.expanduser('~/.mettalex/config-dev.json'), 'r') as f:
-#         config = json.load(f)
-#     return config
 
 def connectNetwork(network, account='admin'):
-    if network == 'local':
-        from web3 import Web3
-
-        w3 = Web3(Web3.HTTPProvider("http://127.0.0.1:8545"))
-        try:
-            w3.eth.defaultAccount = w3.eth.accounts[0]
-            admin = w3.eth.accounts[0]
-        except:
-            raise Exception("Ensure ganache-cli is connected")
-    elif network == 'bsc-testnet':
+    if network == 'bsc-testnet':
         os.environ['WEB3_PROVIDER_URI'] = 'https://data-seed-prebsc-1-s1.binance.org:8545/'
         os.environ['WEB3_CHAIN_ID'] = '97'
 
@@ -5426,7 +5412,6 @@ def getCommodities():
 
   response = requests.request("GET", url, headers=headers, data=payload)
   cmdts = []
-  # for commodity in json.loads(response.text)["data"]:
   cmdts = json.loads(response.text)["data"]
   cmdts.sort(key=lambda s: s['version'])
   cmdts.reverse()
@@ -5458,7 +5443,6 @@ class Commodity:
     self.stk = self.deployed_contracts['Short']
     self.strategy = self.deployed_contracts['PoolController']
     self.vault = self.deployed_contracts['Vault']
-    # self.balancer = self.deployed_contracts['BPool']
     print("connection established sucessfully")
 
   def switch(self, token):
