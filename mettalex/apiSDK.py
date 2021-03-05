@@ -5270,7 +5270,7 @@ def connectNetwork(network, account='admin'):
         w3.middleware_onion.add(construct_sign_and_send_raw_middleware(admin))
 
     elif network == 'bsc-mainnet':
-        os.environ['WEB3_PROVIDER_URI'] = ' https://bsc-dataseed.binance.org/'
+        os.environ['WEB3_PROVIDER_URI'] = 'https://bsc-dataseed.binance.org/'
         os.environ['WEB3_CHAIN_ID'] = '56'
 
         from web3.middleware import construct_sign_and_send_raw_middleware
