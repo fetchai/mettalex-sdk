@@ -5406,7 +5406,7 @@ def connect(network, userkey, infuraSecret = '', infuraProjectId = ''):
 
 def getCommodities():
   global COMMODITY_LIST
-  url = "https://storage.googleapis.com/mettalex-assets-stats/commodities_"+str(NETWORK_ID)+".json"
+  url = "https://storage.googleapis.com/mettalex-assets-stats/commodities_"+str(NETWORK_ID)+"_all.json"
   payload={}
   headers = {}
 
