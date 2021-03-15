@@ -1,14 +1,28 @@
 import os
 import json
 import requests
+import pandas as pd
+from web3.middleware import construct_sign_and_send_raw_middleware
 
-from mettalex.abi import abi_coin, abi_position, abi_vault, abi_poolController
+from mettalex.abi import coin as coin_abi, position, vault_v2 as vault, pool_controller
+from mettalex.api import LiquidityPool, Vault
 
 INNFURA_SECRET = ''
 INNFURA_PROJECT_ID = ''
 USER_KEY = ''
 NETWORK_ID = ''
-COMMODITY_LIST = []
+COMMODITY_LIST = None
+
+NETWORK_NAME_ID_MAP = {
+    'kovan': '42',
+    'bsc-mainnet': '56',
+    'bsc-testnet': '97'
+}
+
+
+def setUser(w3, user):
+    w3.eth.defaultAccount = user.address
+    w3.middleware_onion.add(construct_sign_and_send_raw_middleware(user))
 
 
 def connectNetwork(network, account='admin'):
@@ -22,7 +36,10 @@ def connectNetwork(network, account='admin'):
 
         admin = w3.eth.account.from_key(USER_KEY)
         w3.eth.defaultAccount = admin.address
-        w3.middleware_onion.inject(geth_poa_middleware, layer=0)
+        try:
+            w3.middleware_onion.inject(geth_poa_middleware, layer=0)
+        except ValueError as ex:
+            print(f'Warning: "{ex}" on inject geth_poa_middleware.  Attempting to continue')
         w3.middleware_onion.add(construct_sign_and_send_raw_middleware(admin))
 
     elif network == 'bsc-mainnet':
@@ -35,15 +52,18 @@ def connectNetwork(network, account='admin'):
 
         admin = w3.eth.account.from_key(USER_KEY)
         w3.eth.defaultAccount = admin.address
-        w3.middleware_onion.inject(geth_poa_middleware, layer=0)
+        try:
+            w3.middleware_onion.inject(geth_poa_middleware, layer=0)
+        except ValueError as ex:
+            print(f'Warning: "{ex}" on inject geth_poa_middleware.  Attempting to continue')
         w3.middleware_onion.add(construct_sign_and_send_raw_middleware(admin))
 
     elif network == 'kovan':
         os.environ['WEB3_INFURA_PROJECT_ID'] = INNFURA_PROJECT_ID
         os.environ['WEB3_INFURA_API_SECRET'] = INNFURA_SECRET
 
-        from web3.middleware import construct_sign_and_send_raw_middleware
         from web3.auto.infura.kovan import w3
+        from web3.middleware import construct_sign_and_send_raw_middleware
 
         admin = w3.eth.account.from_key(USER_KEY)
         w3.eth.defaultAccount = admin.address
@@ -55,70 +75,27 @@ def connectNetwork(network, account='admin'):
     return w3, admin
 
 
-def get_contracts(w3):
-    contracts = {
-        # 'BFactory': create_contract(w3, abi_BFactory),
-        # 'BPool': create_contract(w3, abi_BPool),
-        'Coin': create_contract(w3, abi_coin),
-        'Long': create_contract(w3, abi_position),
-        'Short': create_contract(w3, abi_position),
-        'Vault': create_contract(w3, abi_vault),
-        # 'YController': create_contract(w3, abi_yController),
-        # 'YVault': create_contract(w3, abi_yVault),
-        'PoolController': create_contract(w3, abi_poolController),
-    }
-    return contracts
-
-
-def create_contract(w3, _abi):
-    contract = w3.eth.contract(abi=_abi)
-    return contract
-
-
-def connect_contract(w3, contract_abi, address):
-    """Connect to existing deployed contract
-
-    :param w3:
-    :param contract:
-    :param address:
-    :return:
-    """
-    deployed_contract = w3.eth.contract(
-        address=address,
-        abi=contract_abi
-    )
-    return deployed_contract
-
-
-def connect_deployed(w3, contracts, tkn=""):
-    for commodity in COMMODITY_LIST:
-        if (commodity["commodity_symbol"] == tkn):
-            cmdt = commodity
-            break
-
-    deployed_contracts = {}
-
-    deployed_contracts["Short"] = connect_contract(w3, abi_position, cmdt["short_token_contract_address"])
-    deployed_contracts["Long"] = connect_contract(w3, abi_position, cmdt["long_token_contract_address"])
-    deployed_contracts["Coin"] = connect_contract(w3, abi_coin, get_coin(str(NETWORK_ID)))
-    deployed_contracts["PoolController"] = connect_contract(w3, abi_poolController, cmdt["strategy_address"])
-    deployed_contracts["Vault"] = connect_contract(w3, abi_vault, cmdt["mettalex_contract_address"])
-    # deployed_contracts["BPool"] = connect_contract(w3, abi_BPool, cmdt["liquidity_pool_address"])
-
-    return deployed_contracts
-
-
 def get_network_id(w3):
     chain_id = w3.eth.chainId
     return chain_id
 
 
-def get_coin(network_id):
+def get_coin(network_id, coin_name=None):
     coin_address = {
-        '97': '0xa5Ebc90a713908872f137f7e468c2d887a8A2869',
-        '42': '0xe551960F80e5f855bB75d36016Ca92c981314b3E',
-        '56': '0x6e71C530bAdEB04b95C64a8ca61fe0b946A94525'
-    }[network_id]
+        '97': {
+            'default': '0xa5Ebc90a713908872f137f7e468c2d887a8A2869'
+        },
+        '42': {
+            'default': '0xe551960F80e5f855bB75d36016Ca92c981314b3E',
+            'USDT': '0xe551960F80e5f855bB75d36016Ca92c981314b3E',
+            'wUSD': '0xAE04c8e47cAc09e27A06b76407DA9C8836A576b6'
+        },
+        '56': {
+            'default': '0x6e71C530bAdEB04b95C64a8ca61fe0b946A94525',
+            'MUSD': '0x6e71C530bAdEB04b95C64a8ca61fe0b946A94525',
+            'BUSD': '0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56'
+        }
+    }[network_id][coin_name]
     return coin_address
 
 
@@ -148,10 +125,27 @@ def swap(w3, strategy, tokenIn, amountIn, tokenOut, amountOut=1):
             f'Swap successful from {tokenIn.address} to {tokenOut.address} with received amount = {amount_out}')
 
 
-def connect(network, userkey, infuraSecret='', infuraProjectId=''):
+def read_credentials(network, filename):
+    with open(filename, 'r') as f:
+        credentials = json.load(f)[network]
+    user_key = credentials['user']['key']
+    if network in {'kovan', 'eth-mainnet'}:
+        infura_project = credentials['infura']['project_id']
+        infura_secret = credentials['infura']['secret']
+    else:
+        infura_project = ''
+        infura_secret = ''
+    return user_key, infura_project, infura_secret
+
+
+def connect(network, userkey='', infuraSecret='', infuraProjectId='', filename=None):
     global INNFURA_SECRET, INNFURA_PROJECT_ID, USER_KEY, NETWORK_ID, W3, CONTRACTS
-    if (network == "kovan"):
-        if (infuraSecret == '' and infuraProjectId == ''):
+    if filename is not None:
+        userkey, infuraProjectId, infuraSecret = read_credentials(network, filename)
+    else:
+        assert userkey != '', 'Must supply user private key to trade'
+    if network == "kovan":
+        if (infuraSecret == '') and (infuraProjectId == ''):
             raise Exception("Provide infura details to connect to kovan")
 
     INNFURA_SECRET = infuraSecret
@@ -159,51 +153,72 @@ def connect(network, userkey, infuraSecret='', infuraProjectId=''):
     USER_KEY = userkey
     w3, admin = connectNetwork(network)
     NETWORK_ID = get_network_id(w3)
-    print(NETWORK_ID)
-    CONTRACTS = get_contracts(w3)
+    print(f'Connected to network ID {NETWORK_ID}')
     W3 = w3
 
 
-def getCommodities():
+def getCommodities(network=None, coin=None, output='object'):
     global COMMODITY_LIST
-    url = "https://storage.googleapis.com/mettalex-assets-stats/commodities_" + str(NETWORK_ID) + "_all.json"
+    if network is not None:
+        network_id = NETWORK_NAME_ID_MAP[network]
+    else:
+        network_id = NETWORK_ID
+
+    coin = coin or 'all'
+    if coin[:2] != '0x' and coin != 'all':
+        coin = get_coin(network_id, coin)
+
+    url = f"https://storage.googleapis.com/mettalex-assets-stats/commodities_{network_id}_{coin}.json"
     payload = {}
     headers = {}
 
     response = requests.request("GET", url, headers=headers, data=payload)
-    cmdts = []
-    cmdts = json.loads(response.text)["data"]
-    cmdts.sort(key=lambda s: s['version'])
-    cmdts.reverse()
-    COMMODITY_LIST = cmdts
-    CommodityArr = []
-    for cmdt in cmdts:
-        if cmdt['commodity_symbol'] not in CommodityArr:
-            CommodityArr.append(cmdt['commodity_symbol'])
-    return CommodityArr
+    commodities = response.json()["data"]
+    commodities.sort(key=lambda s: s['version'])
+    commodities.reverse()
+    COMMODITY_LIST = pd.DataFrame(commodities)
+    if output.lower() == 'object':
+        CommodityArr = []
+        for cmdt in commodities:
+            if cmdt['commodity_symbol'] not in CommodityArr:
+                CommodityArr.append(cmdt['commodity_symbol'])
+        return CommodityArr
+    elif output.lower() == 'dataframe':
+        return COMMODITY_LIST
+    else:
+        return commodities
 
 
 class Commodity:
-    def __init__(self, symbol):
-        self.cmdtFlag = 0
-        for cmdt in getCommodities():
-            if (symbol == cmdt):
-                self.cmdtFlag = 1
-                break
-        if (self.cmdtFlag == 0):
-            raise Exception("Not a valid commodity symbol")
+    def __init__(self, symbol, version=None, commodity_id=None, coin=None, connect=True):
+        if commodity_id is not None:
+            self.commodity_details = COMMODITY_LIST.loc[COMMODITY_LIST['id'] == int(commodity_id), :].squeeze()
+        else:
+            commodity_ind = COMMODITY_LIST['commodity_symbol'] == symbol
+            if version is not None:
+                commodity_ind &= (COMMODITY_LIST['version'] == version)
+            assert commodity_ind.sum() > 0, "No commodities found with specified symbol"
+            assert commodity_ind.sum() < 2, f"Multiple commodities:\n {COMMODITY_LIST.loc[commodity_ind, ['category', 'commodity_symbol', 'version', 'is_settled', 'id']]}"
+            self.commodity_details = COMMODITY_LIST.loc[commodity_ind, :].squeeze()
+
         self.symbol = symbol
         self.w3 = W3
-        self.contracts = CONTRACTS
-        self.connect()
+        self.pool = None
+        self.vault = None
+        self.coin = None
+        self.ltk = None
+        self.stk = None
+        self.strategy = None
+        if connect:
+            self.connect()
 
     def connect(self):
-        self.deployed_contracts = connect_deployed(self.w3, self.contracts, self.symbol)
-        self.coin = self.deployed_contracts['Coin']
-        self.ltk = self.deployed_contracts['Long']
-        self.stk = self.deployed_contracts['Short']
-        self.strategy = self.deployed_contracts['PoolController']
-        self.vault = self.deployed_contracts['Vault']
+        self.pool = LiquidityPool(self.w3, self.commodity_details['liquidity_pool_address'])
+        self.vault = Vault(self.w3, self.commodity_details['mettalex_contract_address'])
+        self.coin = self.pool.get('coin')
+        self.ltk = self.pool.get('long')
+        self.stk = self.pool.get('short')
+        self.strategy = self.pool.get('strategy')
         print("connection established sucessfully")
 
     def switch(self, token):
@@ -215,13 +230,13 @@ class Commodity:
         return switcher.get(token, "--")
 
     def trade(self, tokenIn, tokenOut, amountIn, amountOut=1):
-        if (self.vault.functions.isSettled().call() == True):
+        if (self.vault.contract.functions.isSettled().call() == True):
             raise Exception("Settled")
         intkn = self.switch(tokenIn)
         outtkn = self.switch(tokenOut)
-        if (intkn == outtkn):
+        if intkn == outtkn:
             raise Exception("In and out token can't be same")
-        if (intkn == "--" or intkn == "--"):
+        if (intkn == "--") or (outtkn == "--"):
             raise Exception("In token or out token not valid")
         print("swap started")
         swap(self.w3, self.strategy, intkn, amountIn, outtkn, amountOut)
