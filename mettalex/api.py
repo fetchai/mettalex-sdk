@@ -79,10 +79,19 @@ class Vault(object):
         return amt / (10**tok.functions.decimals().call())
 
     def __repr__(self):
+        price_scale = 0.10
+        prices = ' '.join(
+            [
+                f'  Prices - Floor: {self.get("floor")*price_scale:0.1f}',
+                f'Spot: {self.get("spot")*price_scale:0.1f}',
+                f'Cap: {self.get("cap")*price_scale:0.1f}',
+            ]
+        )
+
         out_str = '\n'.join(
             [
                 f'Mettalex Vault: {self.contract.address}',
-                f'  Prices - Floor: {self.get("floor")}  Spot: {self.get("spot")} Cap: {self.get("cap")}',
+                prices,
                 f'  Coin : {self.get("coin").address}  {self.get("coin_balance")}',
                 f'  Short: {self.get("short").address}  {self.get("short_balance")}',
                 f'  Long : {self.get("long").address}  {self.get("long_balance")}',
