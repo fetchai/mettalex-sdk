@@ -35,7 +35,16 @@ def setUser(w3, user):
 
 
 def connectNetwork(network):
-    if network == 'bsc-testnet':
+    if network == 'local':
+        from web3 import Web3
+
+        w3 = Web3(Web3.HTTPProvider("http://127.0.0.1:8545"))
+        try:
+            w3.eth.defaultAccount = w3.eth.accounts[0]
+            user = w3.eth.accounts[0]
+        except:
+            raise Exception("Ensure ganache-cli is connected")
+    elif network == 'bsc-testnet':
         os.environ['WEB3_PROVIDER_URI'] = 'https://data-seed-prebsc-1-s1.binance.org:8545/'
         os.environ['WEB3_CHAIN_ID'] = '97'
 
@@ -160,7 +169,47 @@ def connect(network, userkey='', infuraSecret='', infuraProjectId='', filename=N
     W3 = w3
 
 
-def getCommodities(network=None, coin=None, output='dataframe'):
+def commodity_from_pool_address(liquidity_pool_address=None):
+    assert W3 is not None, 'Needs connection to blockchain'
+    w3 = W3
+    pool = LiquidityPool(w3, liquidity_pool_address)
+    strategy = pool.get('strategy')
+    mettalex_contract_address = strategy.functions.mettalexVault().call()
+    vault = Vault(w3, mettalex_contract_address)
+    ltk = vault.get('long')
+    tok_name = ltk.functions.symbol().call()
+    symbol = tok_name[:len(tok_name) - tok_name[-1::-1].index('L') - 1]
+    details = {
+        'commodity_name': vault.contract.functions.contractName().call(),
+        'liquidity_pool_address': liquidity_pool_address,
+        'mettalex_contract_address': mettalex_contract_address
+    }
+    df_d = pd.DataFrame([details]).squeeze()
+    commodity = Commodity(symbol, df_d)
+    return commodity
+
+
+def commodity_from_symbol(symbol, version=None):
+    commodity_ind = COMMODITY_DATA['commodity_symbol'] == symbol
+    if version is not None:
+        commodity_ind &= (COMMODITY_DATA['version'] == version)
+    assert commodity_ind.sum() > 0, "No commodities found with specified symbol"
+    assert commodity_ind.sum() < 2, f"Multiple commodities:\n {COMMODITY_DATA.loc[commodity_ind, ['category', 'commodity_symbol', 'version', 'is_settled', 'id']]}"
+    df_d = COMMODITY_DATA.loc[commodity_ind, :].squeeze()
+    commodity = Commodity(symbol, df_d)
+    return commodity
+
+
+def commodity_from_id(commodity_id=None):
+    df_d = COMMODITY_DATA.loc[COMMODITY_DATA['id'] == int(commodity_id), :].squeeze()
+    symbol = df_d['commodity_symbol']
+    commodity = Commodity(symbol, df_d)
+    return commodity
+
+
+def getCommodities(
+        network=None, coin=None, output='dataframe', liquidity_pool_address=None
+):
     global COMMODITY_DATA
     if network is not None:
         network_id = NETWORK_NAME_ID_MAP[network]
@@ -193,18 +242,9 @@ def getCommodities(network=None, coin=None, output='dataframe'):
 
 
 class Commodity:
-    def __init__(self, symbol, version=None, commodity_id=None, coin=None, connect=True):
-        if commodity_id is not None:
-            self.commodity_details = COMMODITY_DATA.loc[COMMODITY_DATA['id'] == int(commodity_id), :].squeeze()
-        else:
-            commodity_ind = COMMODITY_DATA['commodity_symbol'] == symbol
-            if version is not None:
-                commodity_ind &= (COMMODITY_DATA['version'] == version)
-            assert commodity_ind.sum() > 0, "No commodities found with specified symbol"
-            assert commodity_ind.sum() < 2, f"Multiple commodities:\n {COMMODITY_DATA.loc[commodity_ind, ['category', 'commodity_symbol', 'version', 'is_settled', 'id']]}"
-            self.commodity_details = COMMODITY_DATA.loc[commodity_ind, :].squeeze()
-
+    def __init__(self, symbol, df_details, connect=True):
         self.symbol = symbol
+        self.commodity_details = df_details
         self.w3 = W3
         self.pool = None
         self.vault = None
@@ -231,6 +271,9 @@ class Commodity:
             "coin": self.coin
         }
         return switcher.get(token, "--")
+
+    # def mintPair(self, amount_in, unitless=False):
+    #     mint()
 
     def trade(self, token_in, token_out, amount_in, min_amount_out=1, unitless=False):
         if self.vault.contract.functions.isSettled().call() == True:
