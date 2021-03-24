@@ -183,12 +183,12 @@ class LiquidityPool(object):
                 self.state[name] = self.contract
         return self.state[name]
 
-    def get_spot(self, token):
+    def get_spot(self, token, trade_amount=1):
         strategy = self.get('strategy')
         spot = strategy.functions.getExpectedInAmount(
             self.get('coin').address, self.get(token).address,
-            10**(self.get(token).functions.decimals().call())
-        ).call()[0] / 10 ** (self.get('coin').functions.decimals().call())
+            int(trade_amount * 10 ** (self.get(token).functions.decimals().call()))
+        ).call()[0] / int(trade_amount * 10 ** (self.get('coin').functions.decimals().call()))
         return spot
 
     def update(self):
