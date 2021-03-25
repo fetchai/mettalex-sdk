@@ -2,6 +2,9 @@ from .abi import (
     vault_v2, balancer_pool, pool_controller_202102 as pool_controller, y_vault, y_controller,
     coin as coin_abi, position as position_abi
 )
+import time
+
+TX_TIMEOUT = 5  # seconds
 
 
 def get_strategy_state(w3, address):
@@ -77,6 +80,29 @@ class Vault(object):
         else:
             raise ValueError(f'Unknown token {token}')
         return amt / (10**tok.functions.decimals().call())
+
+    def mint(self, amount_in):
+        # approve
+        coin = self.get('coin')
+        vault = self.contract
+        tx_hash = coin.functions.approve(vault.address, amount_in).transact(
+            {'from': self.w3.eth.defaultAccount, 'gas': 1_000_000}
+        )
+        tx_receipt = self.w3.eth.waitForTransactionReceipt(tx_hash, timeout=240)
+        time.sleep(TX_TIMEOUT)
+
+        tx_hash = vault.functions.mintFromCollateralAmount(amount_in).transact(
+            {'from': self.w3.eth.defaultAccount, 'gas': 1_000_000}
+        )
+        tx_receipt = self.w3.eth.waitForTransactionReceipt(tx_hash, timeout=240)
+        time.sleep(TX_TIMEOUT)
+
+    def redeem(self, amount_in):
+        tx_hash = self.contract.functions.redeemPositions(amount_in).transact(
+            {'from': self.w3.eth.defaultAccount, 'gas': 1_000_000}
+        )
+        tx_receipt = self.w3.eth.waitForTransactionReceipt(tx_hash, timeout=240)
+        time.sleep(TX_TIMEOUT)
 
     def __repr__(self):
         price_scale = 0.10

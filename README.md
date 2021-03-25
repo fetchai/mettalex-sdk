@@ -61,14 +61,31 @@ then connect with
 
 ##### Getting Commodities
 
-```apiSDK.getCommodities()```
-This function returns a pandas DataFrame with details of all the commodities in the connected network. Use this function typically while getting the list of all commoodities availabe on a network.
+```apiSDK.getCommodities(network_id=optional, coin_id='default')```
+This function returns a pandas DataFrame with details of all the commodities in the connected network.  
+Use this function typically while getting the list of all commodities available on a network.
+
+The optional `network_id` argument allows the user to examine commodities present on different networks.
+If unspecified the connected network is used.
+
+The optional `coin_id` argument specifies the underlying collateral.  
+
+**NB: on bsc-mainnet BUSD is "real money"** - please exercise caution and understand the risks involved. 
+
+    commodities = apiSDK.getCommodities(coin='BUSD')
+    commodities.loc[:, ['category', 'commodity_symbol', 'id']]
+    Out[27]: 
+      category commodity_symbol   id
+    0   Spread          BTCTSLA  338
+    1   Crypto              BTC  336
 
 ##### Creating a commodity instance to trade
 
 ```commodity = apiSDK.Commodity([commodity symbol or commodity ID])```
 A Commodity instance can be created using the commodity symbol. This initializes a class instance of the particular commodity. An instance of a commodity needs to be created to be able to execute trades and getting expected prices.
-We can get commodity symbols available by calling ```getCommodities()```
+We can get commodity symbols available by calling ```getCommodities()``` and looking at the `commodity_symbol` 
+column.  If there are multiple commodities with the same symbol, e.g. settled and active commodities, then it is
+better to use the `commodity_id` to access a market.
  
 ##### Expected trading prices
  
@@ -156,9 +173,46 @@ Connect to specific market and trade
     commodity.bid('long', 100)
     Out[16]: 2580.950892
     commodity.trade('coin', 'long', 3000)
-    swap started
-    txn approved
     Swapped 3000.000 coin to 109.926 long
     Out[17]: (3000.0, 109.92576)
     commodity.getUserBalance()
     Out[18]: (32752.557059, 0.0, 109.92576)
+
+
+## Example Showing Mint and Redeem Operations
+
+    commodity = apiSDK.commodity_from_symbol('BTCTSLA')
+    connection established sucessfully
+    commodity
+    Out[7]: 
+    BTCTSLA: Bitcoin Tesla Spread
+    Mettalex Vault: 0xdd458CDBbEAEE04C010C721E50fD4C4BEA02507c
+      Prices - Floor: 50.0 Spot: 83.0 Cap: 100.0
+      Coin : 0x6e71C530bAdEB04b95C64a8ca61fe0b946A94525  475250.192
+      Short: 0xe17d1431D2f13044e660fa25Fea2009316F8Bf2c  9504.96
+      Long : 0xbf97902FfEB9520DbB0014DF36961B59cfB1875a  9504.96
+    Mettalex Liquidity Pool: 0x5629f27EBF0921605c99269f92F537F1eDCb860a
+      Coin : 0x6e71C530bAdEB04b95C64a8ca61fe0b946A94525  {'y_vault': 279605.588519, 'vault_controller': 0.0, 'strategy': 0.0, 'balancer': 746369.04679}
+      Short: 0xe17d1431D2f13044e660fa25Fea2009316F8Bf2c  {'y_vault': 0.0, 'vault_controller': 0.0, 'strategy': 0.0, 'balancer': 6038.29334}
+      Long : 0xbf97902FfEB9520DbB0014DF36961B59cfB1875a  {'y_vault': 0.0, 'vault_controller': 0.0, 'strategy': 0.0, 'balancer': 4064.57865}
+    Short spot price: 13.137957  Long spot price : 37.889255
+    commodity.getUserBalance()  # See our coin, short, long account balance
+    Out[8]: (99979707.333966, 0.0, 0.0)
+    paid_trade, received_trade = commodity.trade('coin', 'long', 100)
+    Swapped 100.000 coin to 2.639 long
+    commodity.getUserBalance()  # See our coin, short, long account balance
+    Out[10]: (99979607.333966, 0.0, 2.63863)
+    paid_mint, received_mint = commodity.mint(200)  # Mint $200 worth of long and short tokens
+    Paid 200.000 coin to mint 3.984 long and short
+    commodity.getUserBalance()  # See our coin, short, long account balance
+    Out[12]: (99979407.333966, 3.98406, 6.62269)
+    paid_trade_2, received_trade_2 = commodity.trade('coin', 'short', 100)  # Buy $100 worth of short tokens
+    Swapped 100.000 coin to 7.611 short
+    commodity.getUserBalance()  # See our coin, short, long account balance
+    Out[14]: (99979307.333966, 11.59466, 6.62269)
+    paid_redeem, received_redeem = commodity.redeem(5)  # Redeem 5 long and short token pairs for coin
+    Redeemed 5.000 long and short for 250.000 coin
+    commodity.getUserBalance()  # See our coin, short, long account balance
+    Out[16]: (99979557.333966, 6.59466, 1.62269)
+    # Close position either by swapping long to coin, short to coin
+    # or redeeming max number of pairs and then trading the remaining position tokens for coin

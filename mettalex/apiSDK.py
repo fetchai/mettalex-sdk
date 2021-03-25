@@ -5,7 +5,7 @@ import pandas as pd
 import time
 from web3.middleware import construct_sign_and_send_raw_middleware
 
-from mettalex.api import LiquidityPool, Vault
+from mettalex.api import LiquidityPool, Vault, TX_TIMEOUT
 
 INNFURA_SECRET = ''
 INNFURA_PROJECT_ID = ''
@@ -113,7 +113,7 @@ def get_coin(network_id, coin_name=None):
             'MUSD': '0x6e71C530bAdEB04b95C64a8ca61fe0b946A94525',
             'BUSD': '0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56'
         }
-    }[network_id][coin_name]
+    }[str(network_id)][coin_name]
     return coin_address
 
 
@@ -123,8 +123,7 @@ def swap(w3, strategy, tokenIn, amountIn, tokenOut, amountOut=1):
         {'from': w3.eth.defaultAccount, 'gas': 1_000_000}
     )
     tx_receipt = w3.eth.waitForTransactionReceipt(tx_hash, timeout=240)
-    time.sleep(5)
-    print("txn approved")
+    time.sleep(TX_TIMEOUT)
 
     # swap
     MAX_UINT_VALUE = 2 ** 256 - 1
@@ -134,7 +133,7 @@ def swap(w3, strategy, tokenIn, amountIn, tokenOut, amountOut=1):
         {'from': w3.eth.defaultAccount, 'gas': 5_000_000}
     )
     tx_receipt = w3.eth.waitForTransactionReceipt(tx_hash, timeout=240)
-    time.sleep(5)
+    time.sleep(TX_TIMEOUT)
 
 
 def read_credentials(network, filename):
@@ -167,6 +166,7 @@ def connect(network, userkey='', infuraSecret='', infuraProjectId='', filename=N
     NETWORK_ID = get_network_id(w3)
     print(f'Connected to network ID {NETWORK_ID}')
     W3 = w3
+    return w3, user
 
 
 def commodity_from_pool_address(liquidity_pool_address=None):
@@ -242,10 +242,10 @@ def getCommodities(
 
 
 class Commodity:
-    def __init__(self, symbol, df_details, connect=True):
+    def __init__(self, symbol, df_details, connect=True, w3=None):
         self.symbol = symbol
         self.commodity_details = df_details
-        self.w3 = W3
+        self.w3 = w3 or W3
         self.pool = None
         self.vault = None
         self.coin = None
@@ -272,8 +272,38 @@ class Commodity:
         }
         return switcher.get(token, "--")
 
-    # def mintPair(self, amount_in, unitless=False):
-    #     mint()
+    def mint(self, amount_in, unitless=False):
+        token_order = ['coin', 'short', 'long']
+        balance_pre = {k: v for k, v in zip(token_order, self.getUserBalance())}
+        if not unitless:
+            amount_in = int(amount_in * (10 ** self.coin.functions.decimals().call()))
+        self.vault.mint(amount_in)
+        balance_post = {k: v for k, v in zip(token_order, self.getUserBalance())}
+        token_out = 'long'
+        token_in = 'coin'
+        received_amount = balance_post[token_out] - balance_pre[token_out]
+        paid_amount = balance_pre[token_in] - balance_post[token_in]
+        print(f'Paid {paid_amount:0.3f} {token_in} to mint {received_amount:0.3f} long and short')
+        return paid_amount, received_amount
+
+    def redeem(self, amount_in=None, unitless=False):
+        token_order = ['coin', 'short', 'long']
+        balance_pre = {k: v for k, v in zip(token_order, self.getUserBalance())}
+        if amount_in is None:
+            unitless = True
+            _, ltk, stk = self.getUserBalance(unitless)
+            amount_in = min(ltk, stk)
+
+        if not unitless:
+            amount_in = int(amount_in * (10 ** self.ltk.functions.decimals().call()))
+        self.vault.redeem(amount_in)
+        balance_post = {k: v for k, v in zip(token_order, self.getUserBalance())}
+        token_out = 'coin'
+        token_in = 'long'
+        received_amount = balance_post[token_out] - balance_pre[token_out]
+        paid_amount = balance_pre[token_in] - balance_post[token_in]
+        print(f'Redeemed {paid_amount:0.3f} long and short for {received_amount:0.3f} coin')
+        return paid_amount, received_amount
 
     def trade(self, token_in, token_out, amount_in, min_amount_out=1, unitless=False):
         if self.vault.contract.functions.isSettled().call() == True:
@@ -284,7 +314,6 @@ class Commodity:
             raise Exception("In and out token can't be same")
         if (intkn == "--") or (outtkn == "--"):
             raise Exception("In token or out token not valid")
-        print("swap started")
         if not unitless:
             amount_in = int(amount_in * (10 ** intkn.functions.decimals().call()))
             min_amount_out = int(min_amount_out * (10 ** outtkn.functions.decimals().call()))
@@ -352,7 +381,10 @@ class Commodity:
         out = f'{self.symbol}: {self.commodity_details["commodity_name"]}'
         if self.pool is not None:
             out += f'\n{self.vault}\n{self.pool}'
-            out += f'\nShort spot price: {self.pool.get_spot("short")}  Long spot price : {self.pool.get_spot("long")}'
+            try:
+                out += f'\nShort spot price: {self.pool.get_spot("short")}  Long spot price : {self.pool.get_spot("long")}'
+            finally:
+                pass
         else:
             out = 'Not connected: ' + out
         return out
