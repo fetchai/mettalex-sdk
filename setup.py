@@ -1,7 +1,7 @@
 import setuptools
 
 setuptools.setup(
-    name="Mettalex",
+    name="mettalex-sdk",
     version="0.0.1",
     author="Mettalex Dev Team",
     author_email="info@mettalex.com",
